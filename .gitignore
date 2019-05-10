@@ -1,0 +1,7 @@
+*.csv
+*.rds
+.Renviron
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata

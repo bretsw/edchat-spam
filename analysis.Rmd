@@ -73,13 +73,13 @@ edchat_full <- read.csv("edchat_full_df.csv", header=TRUE, colClasses='character
 # Review the full dataset
 
 ```{r, include=TRUE}
-n_tweets <- edchat_full %>% pull(id_str) %>%
+n_tweets_full <- edchat_full %>% pull(id_str) %>%
     unique() %>% 
     length()
-n_tweeters <- edchat_full %>% pull(from_user_id_str) %>%
+n_tweeters_full <- edchat_full %>% pull(from_user_id_str) %>%
     unique() %>% 
     length()
-paste("Number of unique tweets:", n_tweets); paste("Number of unique tweeters:", n_tweeters)
+paste("Number of unique tweets:", n_tweets_full); paste("Number of unique tweeters:", n_tweeters_full)
 ```
 
 # De-spam the data
@@ -115,9 +115,9 @@ create_token(
         )
 ```
 
-Returns data on up to 90,000 Twitter statuses. To return data on more than 90,000 statuses, users must iterate through status IDs whilst avoiding rate limits, which reset every 15 minutes (See https://rtweet.info/reference/lookup_statuses.html). Note that 
+Returns data on up to 90,000 Twitter statuses. To return data on more than 90,000 statuses, users must iterate through status IDs whilst avoiding rate limits, which reset every 15 minutes (See https://rtweet.info/reference/lookup_statuses.html).
 
-```{r, include=TRUE, eval=TRUE}
+```{r, include=FALSE, eval=FALSE}
 n_iterations <- edchat_full %>% pull(id_str) %>% length() %>% `/`(., 90000) %>% ceiling()
 
 edchat_rtweet <- data.frame()
@@ -130,52 +130,168 @@ for(i in 1:n_iterations) {
     beepr::beep(2)
     Sys.sleep(1200)
 }
-dim(edchat_rtweet)
 
 write.csv(edchat_rtweet, "edchat_rtweet_df.csv", row.names=FALSE)
 ```
 
-```{r, include=TRUE, eval=FALSE}
-edchat_rtweet <- edchat_full[1228600:1228601, 'id_str'] %>% 
-    lookup_tweets %>% flatten() %>%
-    rbind(edchat_rtweet)
-edchat_rtweet %>% dim
+```{r, include=FALSE, eval=FALSE}
+osf_retrieve_file("https://osf.io/rz8a2/") %>% 
+    osf_download(path = "edchat_rtweet_df.csv", overwrite = TRUE)
+```
+
+```{r, include=FALSE}
+edchat_rtweet <- read.csv("edchat_rtweet_df.csv", header=TRUE, colClasses='character')
+```
+
+```{r, include=TRUE}
+n_tweets_rtweet <- edchat_rtweet %>% pull(status_id) %>%
+    unique() %>% 
+    length()
+n_tweeters_rtweet <- edchat_rtweet %>% pull(user_id) %>%
+    unique() %>% 
+    length()
+paste("Number of unique tweets:", n_tweets_rtweet); paste("Number of unique tweeters:", n_tweeters_rtweet)
+```
+
+```{r, include=TRUE}
+tweet_loss_rtweet <- n_tweets_full - n_tweets_rtweet
+tweeter_loss_rtweet <- n_tweeters_full - n_tweeters_rtweet
+tweet_loss_rtweet; tweeter_loss_rtweet
+```
+
+```{r, include=TRUE}
+edchat_rtweet_public <- edchat_rtweet %>% filter(protected=="FALSE")
+n_tweets_rtweet_public <- edchat_rtweet_public %>% pull(status_id) %>%
+    unique() %>% 
+    length()
+n_tweeters_rtweet_public <- edchat_rtweet_public %>% pull(user_id) %>%
+    unique() %>% 
+    length()
+paste("Number of unique tweets:", n_tweets_rtweet_public); paste("Number of unique tweeters:", n_tweeters_rtweet_public)
+```
+
+```{r, include=TRUE}
+tweet_loss_rtweet_public <- n_tweets_rtweet - n_tweets_rtweet_public
+tweeter_loss_rtweet_public <- n_tweeters_rtweet - n_tweeters_rtweet_public
+tweet_loss_rtweet_public; tweeter_loss_rtweet_public
 ```
 
 
+## Rearrange data and calculate needed measures
 
-```{r, include=TRUE}
-edchat_rtweet <- read.csv("edchat_rtweet_df.csv", header=TRUE, colClasses='character')
+
+
+```{r, include=FALSE, eval=FALSE}
+freq_tweeters <- edchat_rtweet_public %>% 
+    pull(user_id) %>% 
+    table() %>% 
+    as.data.frame() %>% 
+    arrange(desc(Freq)) %>%
+    rename(tweets_made_edchat = Freq)
+
+pop_mean <- mean(freq_tweeters$tweets_made_edchat)
+
+freq_tweeters <- freq_tweeters %>%
+    mutate(sq_mean_diff = (tweets_made_edchat - pop_mean)^2)
+
+pop_sd <- sqrt(mean(freq_tweeters$sq_mean_diff))
+
+freq_tweeters <- freq_tweeters %>%
+    mutate(z = (tweets_made_edchat - pop_mean) / pop_sd,
+           edchat_prop = (tweets_made_edchat / n_tweets_rtweet_public) * 100
+           ) %>%
+    select(-sq_mean_diff)
+freq_tweeters <- rename(freq_tweeters, user_id = .)
+#hist(freq_tweeters$z)
+#freq_tweeters %>% head(n=100)
+```
+
+```{r, include=FALSE, eval=FALSE}
+freq_replies <- edchat_rtweet_public %>% 
+    pull(reply_to_status_id) %>% 
+    table() %>% 
+    as.data.frame() %>% 
+    arrange(desc(Freq)) %>%
+    rename(reply_count = Freq)
+freq_replies <- rename(freq_replies, status_id = .)
+
+edchat_rtweet_public <- edchat_rtweet_public %>% 
+    full_join(freq_replies, by='status_id') %>% 
+    mutate(reply_count = ifelse(is.na(reply_count), 0, reply_count))
+```
+
+```{r, include=FALSE, eval=FALSE}
+edchat_tweeters <- edchat_rtweet_public %>% 
+    mutate(tweets_made_all = statuses_count %>% as.numeric(),
+           tweets_liked_all = favourites_count %>% as.numeric(),
+           profile_description = description,
+           favorite_count = ifelse(is.na(favorite_count), 0, favorite_count) %>% as.numeric(),
+           retweet_count = ifelse(is.na(retweet_count), 0, retweet_count) %>% as.numeric(),
+           hashtag_count = ifelse(is.na(hashtags), 0, strsplit(hashtags, " ") %>% sapply(length)),
+           hashtag_inclusion = ifelse(hashtag_count==0, 0, 1) %>% as.numeric(),
+           url_count = ifelse(is.na(urls_url), 0, strsplit(urls_url, " ") %>% sapply(length)),
+           url_inclusion = ifelse(url_count==0, 0, 1),
+           following_ratio = as.numeric(friends_count) / as.numeric(followers_count)
+           ) %>%
+    group_by(user_id) %>%
+    mutate(like_mean = mean(favorite_count),
+           retweet_mean = mean(retweet_count),
+           reply_mean = mean(reply_count),
+           tweets_with_hashtags = (sum(hashtag_inclusion) / n()) * 100,
+           tweets_with_url = (sum(url_inclusion) / n()) * 100
+              ) %>%
+    slice(1) %>%
+    full_join(freq_tweeters, by='user_id') %>%
+    filter(!is.na(user_id)) %>%
+    select(user_id, screen_name,
+           tweets_made_all, tweets_made_edchat,
+           z, edchat_prop,
+           like_mean, retweet_mean, reply_mean,
+           following_ratio, friends_count, followers_count,
+           tweets_with_hashtags, tweets_with_url,
+           tweets_liked_all,
+           source, verified,
+           profile_description, profile_url
+           ) %>%
+    arrange(desc(z))
+
+dim(edchat_tweeters)
+
+write.csv(edchat_tweeters, "edchat_tweeters.csv", row.names=FALSE)
+```
+
+```{r, include=FALSE}
+edchat_tweeters <- read.csv("edchat_tweeters.csv", header=TRUE)
 ```
 
 ## Apply practical metrics for educational research
 
-*Volume of tweeting*: One indicator of spam is unusually high-volume tweeting as such tweeting is often-bot generated. Related practical indicators of spam include counts of the raw number of tweets, the percentage of tweets to a hashtag accounted for by a user, or more standardized metrics such as z-scores of tweets per user.
+*1. Volume of tweeting*: One indicator of spam is unusually high-volume tweeting as such tweeting is often-bot generated. Related practical indicators of spam include counts of the raw number of tweets, the percentage of tweets to a hashtag accounted for by a user, or more standardized metrics such as z-scores of tweets per user.
 
 ```{r, include=TRUE}
-
+edchat_tweeters
 ```
 
-*Level of interaction*: Because spammers tend to broadcast messages, which others frequently ignore (Lin & Huang, 2013), spam accounts can also be identified by the absence of interaction with others. Relatively easy metrics researchers can use to measure interaction is to examine the extent to which a users’ tweets result in likes, retweets, and replies.
+*2. Level of interaction*: Because spammers tend to broadcast messages, which others frequently ignore (Lin & Huang, 2013), spam accounts can also be identified by the absence of interaction with others. Relatively easy metrics researchers can use to measure interaction is to examine the extent to which a users’ tweets result in likes, retweets, and replies.
 
 ```{r, include=TRUE}
-
+edchat_tweeters
 ```
 
-*Following vs. followers*: Spammers often follow many other users, but themselves have relatively low number of followers. Researchers can quickly measure this phenomenon by calculating the ratio of following to followers for users in their dataset.
+*3. Following vs. followers*: Spammers often follow many other users, but themselves have relatively low number of followers. Researchers can quickly measure this phenomenon by calculating the ratio of following to followers for users in their dataset.
 
 ```{r, include=TRUE}
-
+edchat_tweeters
 ```
 
-*Level of hyperlinking*: Many spammers share hyperlinks in an attempt to drive traffic to certain websites (e.g., Lin & Huang, 2013) For instance, a tweet might advertise goods for sale and include a hyperlink to the website where the actual purchase would occur. Researchers can therefore analyze the raw number of links, the percentage of tweets that contain a link, or the average number of links per tweet.
+*4. Level of hyperlinking*: Many spammers share hyperlinks in an attempt to drive traffic to certain websites (e.g., Lin & Huang, 2013) For instance, a tweet might advertise goods for sale and include a hyperlink to the website where the actual purchase would occur. Researchers can therefore analyze the raw number of links, the percentage of tweets that contain a link, or the average number of links per tweet.
 
 ```{r, include=TRUE}
-
+edchat_tweeters
 ```
 
 # Compare the full dataset with the de-spammed dataset
 
 ```{r, include=TRUE}
-
+edchat_tweeters
 ```

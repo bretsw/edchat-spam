@@ -1,0 +1,129 @@
+---
+title: "Spam Project Setup"
+author: "K. Bret Staudt Willet"
+date: "5/16/2019"
+output: 
+    html_document:
+        toc: true
+        float_toc: true
+---
+
+# Get set up
+
+This section loads the data and packages and starts to process the data, but doesn't calculate any statistics or create any results.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+usethis::use_git_ignore(c("*.csv", "*.rds"))
+```
+
+## Load packages
+
+```{r, include=FALSE}
+library(tidyverse)
+library(rtweet)
+library(lubridate)
+```
+
+## Get data from Open Science Framework
+
+For notes on this one-time setup, see this walkthrough: http://centerforopenscience.github.io/osfr/articles/auth.html)
+
+First, you must generate an API token from an OSF account that has been added to the data repository. Read how to do this here: https://developer.osf.io/#tag/General-Usage
+
+Then, you need to add the OSF API token to the `.renviron` file, which is created using the following command. Here, the file is created at the user level, although this could also be set to the project level. 
+
+Open the `.renviron` file and add a single line, using this exact text but replacing `<token>` with your OSF API token:  
+`OSF_PAT="<token>"`
+
+```{r, include=FALSE, eval=FALSE}
+usethis::edit_r_environ(scope='user')
+```
+
+Save the file, quit R, and restart in a new session. Continue running the R script from here.
+
+--------------------------------------------------------------------------------
+
+Now, install the `osfr` package and load the library:
+
+```{r, include=FALSE, eval=FALSE}
+devtools::install_github("centerforopenscience/osfr")   # only need to run once
+library(osfr) 
+```
+
+Upon loading the `osfr` package, you should see this message:  
+`Automatically registered OSF personal access token.` 
+
+Now you are able to retrieve and download the relevant dataset.
+
+```{r, include=FALSE, eval=FALSE}
+osf_retrieve_file("https://osf.io/r3ehb/") %>% 
+    osf_download(path = "edchat_full_df.csv", overwrite = TRUE)
+```
+
+## Load the data
+
+Having completed the steps in the previous section, you now have the dataset stored in your local repository and can load it as usual. 
+
+```{r, include=FALSE}
+edchat_full <- read.csv("edchat_full_df.csv", header=TRUE, colClasses='character')
+```
+
+# De-spam the data
+
+## Clean with rtweet
+
+Our first step of de-spamming our dataset is to run the data through the `rtweet` R package, which queries the Twitter API to return the most complete set of tweet metadata available. See https://rtweet.info/ for details on `rtweet`.
+
+Note that to use `rtweet`, you must have a valid Twitter developer API token; see https://apps.twitter.com/ for details on the Twitter developer application.
+
+As with the OSF API token, we need to save our Twitter API tokens as environment variables. Open the `.renviron` file and add five lines, one variable per line:  
+`app="<name>"`  
+`consumer_key="<token>"`  
+`consumer_secret="<token>"`  
+`access_token="<token>"`  
+`access_secret="<token>"`
+
+```{r, include=FALSE, eval=FALSE}
+usethis::edit_r_environ(scope='user')
+```
+
+Save the file, quit R, and restart in a new session. Continue running the R script from here.
+
+--------------------------------------------------------------------------------
+
+```{r, include=FALSE, eval=FALSE}
+create_token(
+        app = Sys.getenv("app"),
+        consumer_key = Sys.getenv("consumer_key"),
+        consumer_secret = Sys.getenv("consumer_secret"),
+        access_token = Sys.getenv("access_token"),
+        access_secret = Sys.getenv("access_secret")
+        )
+```
+
+Returns data on up to 90,000 Twitter statuses. To return data on more than 90,000 statuses, users must iterate through status IDs whilst avoiding rate limits, which reset every 15 minutes (See https://rtweet.info/reference/lookup_statuses.html).
+
+```{r, include=FALSE, eval=FALSE}
+n_iterations <- edchat_full %>% pull(id_str) %>% length() %>% `/`(., 90000) %>% ceiling()
+
+edchat_rtweet <- data.frame()
+for(i in 1:n_iterations) {
+    min = 90000*i - 89999; max = 90000*i
+    edchat_rtweet <- edchat_full[min:max, 'id_str'] %>% 
+        lookup_tweets() %>%
+        flatten() %>%
+        rbind(edchat_rtweet)
+    beepr::beep(2)
+    Sys.sleep(1200)
+}
+
+write.csv(edchat_rtweet, "edchat_rtweet_df.csv", row.names=FALSE)
+```
+
+```{r, include=FALSE, eval=FALSE}
+osf_retrieve_file("https://osf.io/rz8a2/") %>% 
+    osf_download(path = "edchat_rtweet_df.csv", overwrite = TRUE)
+```
+
+

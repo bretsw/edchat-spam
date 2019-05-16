@@ -1,14 +1,14 @@
 ---
-title: "Spam Analysis"
+title: "Spam Project Analysis"
 author: "K. Bret Staudt Willet"
-date: "5/9/2019"
+date: "5/16/2019"
 output: 
     html_document:
         toc: true
         float_toc: true
 ---
 
-# Setting up
+# Get set up
 
 This section loads the data and packages and starts to process the data, but doesn't calculate any statistics or create any results.
 
@@ -23,48 +23,12 @@ usethis::use_git_ignore(c("*.csv", "*.rds"))
 library(tidyverse)
 library(rtweet)
 library(lubridate)
-library(janitor)
-```
-
-## Get data from Open Science Framework
-
-For notes on this one-time setup, see this walkthrough: http://centerforopenscience.github.io/osfr/articles/auth.html)
-
-First, you must generate an API token from an OSF account that has been added to the data repository. Read how to do this here: https://developer.osf.io/#tag/General-Usage
-
-Then, you need to add the OSF API token to the `.renviron` file, which is created using the following command. Here, the file is created at the user level, although this could also be set to the project level. 
-
-Open the `.renviron` file and add a single line, using this exact text but replacing `<token>` with your OSF API token:  
-`OSF_PAT="<token>"`
-
-```{r, include=FALSE, eval=FALSE}
-usethis::edit_r_environ(scope='user')
-```
-
-Save the file, quit R, and restart in a new session. Continue running the R script from here.
-
---------------------------------------------------------------------------------
-
-Now, install the `osfr` package and load the library:
-
-```{r, include=FALSE, eval=FALSE}
-devtools::install_github("centerforopenscience/osfr")   # only need to run once
-library(osfr) 
-```
-
-Upon loading the `osfr` package, you should see this message:  
-`Automatically registered OSF personal access token.` 
-
-Now you are able to retrieve and download the relevant dataset.
-
-```{r, include=FALSE, eval=FALSE}
-osf_retrieve_file("https://osf.io/r3ehb/") %>% 
-    osf_download(path = "edchat_full_df.csv", overwrite = TRUE)
+#library(janitor)
 ```
 
 ## Load the data
 
-Having completed the steps in the previous section, you now have the dataset stored in your local repository and can load it as usual. 
+Having completed the steps in the setup.Rmd file, you now have the dataset stored in your local repository and can load it as usual. 
 
 ```{r, include=FALSE}
 edchat_full <- read.csv("edchat_full_df.csv", header=TRUE, colClasses='character')
@@ -88,57 +52,6 @@ paste("Number of unique tweets:", n_tweets_full); paste("Number of unique tweete
 
 Our first step of de-spamming our dataset is to run the data through the `rtweet` R package, which queries the Twitter API to return the most complete set of tweet metadata available. See https://rtweet.info/ for details on `rtweet`.
 
-Note that to use `rtweet`, you must have a valid Twitter developer API token; see https://apps.twitter.com/ for details on the Twitter developer application.
-
-As with the OSF API token, we need to save our Twitter API tokens as environment variables. Open the `.renviron` file and add five lines, one variable per line:  
-`app="<name>"`  
-`consumer_key="<token>"`  
-`consumer_secret="<token>"`  
-`access_token="<token>"`  
-`access_secret="<token>"`
-
-```{r, include=FALSE, eval=FALSE}
-usethis::edit_r_environ(scope='user')
-```
-
-Save the file, quit R, and restart in a new session. Continue running the R script from here.
-
---------------------------------------------------------------------------------
-
-```{r, include=FALSE, eval=FALSE}
-create_token(
-        app = Sys.getenv("app"),
-        consumer_key = Sys.getenv("consumer_key"),
-        consumer_secret = Sys.getenv("consumer_secret"),
-        access_token = Sys.getenv("access_token"),
-        access_secret = Sys.getenv("access_secret")
-        )
-```
-
-Returns data on up to 90,000 Twitter statuses. To return data on more than 90,000 statuses, users must iterate through status IDs whilst avoiding rate limits, which reset every 15 minutes (See https://rtweet.info/reference/lookup_statuses.html).
-
-```{r, include=FALSE, eval=FALSE}
-n_iterations <- edchat_full %>% pull(id_str) %>% length() %>% `/`(., 90000) %>% ceiling()
-
-edchat_rtweet <- data.frame()
-for(i in 1:n_iterations) {
-    min = 90000*i - 89999; max = 90000*i
-    edchat_rtweet <- edchat_full[min:max, 'id_str'] %>% 
-        lookup_tweets() %>%
-        flatten() %>%
-        rbind(edchat_rtweet)
-    beepr::beep(2)
-    Sys.sleep(1200)
-}
-
-write.csv(edchat_rtweet, "edchat_rtweet_df.csv", row.names=FALSE)
-```
-
-```{r, include=FALSE, eval=FALSE}
-osf_retrieve_file("https://osf.io/rz8a2/") %>% 
-    osf_download(path = "edchat_rtweet_df.csv", overwrite = TRUE)
-```
-
 ```{r, include=FALSE}
 edchat_rtweet <- read.csv("edchat_rtweet_df.csv", header=TRUE, colClasses='character')
 ```
@@ -150,7 +63,8 @@ n_tweets_rtweet <- edchat_rtweet %>% pull(status_id) %>%
 n_tweeters_rtweet <- edchat_rtweet %>% pull(user_id) %>%
     unique() %>% 
     length()
-paste("Number of unique tweets:", n_tweets_rtweet); paste("Number of unique tweeters:", n_tweeters_rtweet)
+paste("Number of unique tweets after rtweet:", n_tweets_rtweet)
+paste("Number of unique tweeters after rtweet:", n_tweeters_rtweet)
 ```
 
 ```{r, include=TRUE, echo=FALSE}
@@ -168,7 +82,8 @@ n_tweets_rtweet_public <- edchat_rtweet_public %>% pull(status_id) %>%
 n_tweeters_rtweet_public <- edchat_rtweet_public %>% pull(user_id) %>%
     unique() %>% 
     length()
-paste("Number of unique tweets:", n_tweets_rtweet_public); paste("Number of unique tweeters:", n_tweeters_rtweet_public)
+paste("Number of public unique tweets after rtweet:", n_tweets_rtweet_public)
+paste("Number of public unique tweeters after rtweet:", n_tweeters_rtweet_public)
 ```
 
 ```{r, include=TRUE, echo=FALSE}
@@ -280,7 +195,7 @@ edchat_tweeters <- read.csv("edchat_tweeters.csv", header=TRUE, colClasses= c(us
 
 ## Apply practical metrics for educational research
 
-*1. Volume of tweeting*: One indicator of spam is unusually high-volume tweeting as such tweeting is often-bot generated. Related practical indicators of spam include counts of the raw number of tweets, the percentage of tweets to a hashtag accounted for by a user, or more standardized metrics such as z-scores of tweets per user.
+*Metric 1. Volume of tweeting*: One indicator of spam is unusually high-volume tweeting as such tweeting is often-bot generated. Related practical indicators of spam include counts of the raw number of tweets, the percentage of tweets to a hashtag accounted for by a user, or more standardized metrics such as z-scores of tweets per user.
 
 ```{r, include=TRUE}
 # Total tweets by tweeter
@@ -304,7 +219,7 @@ edchat_sorted_by_z <- edchat_tweeters %>% arrange(desc(z))
 #View(edchat_sorted_by_z)
 ```
 
-*2. Level of interaction*: Because spammers tend to broadcast messages, which others frequently ignore (Lin & Huang, 2013), spam accounts can also be identified by the absence of interaction with others. Relatively easy metrics researchers can use to measure interaction is to examine the extent to which a users’ tweets result in likes, retweets, and replies.
+*Metric 2. Level of interaction*: Because spammers tend to broadcast messages, which others frequently ignore (Lin & Huang, 2013), spam accounts can also be identified by the absence of interaction with others. Relatively easy metrics researchers can use to measure interaction is to examine the extent to which a users’ tweets result in likes, retweets, and replies.
 
 ```{r, include=TRUE}
 edchat_sorted_by_interaction <- edchat_tweeters %>% 
@@ -333,7 +248,7 @@ edchat_sorted_by_replies <- edchat_tweeters %>%
 
 ```
 
-*3. Following vs. followers*: Spammers often follow many other users, but themselves have relatively low number of followers. Researchers can quickly measure this phenomenon by calculating the ratio of following to followers for users in their dataset.
+*Metric 3. Following vs. followers*: Spammers often follow many other users, but themselves have relatively low number of followers. Researchers can quickly measure this phenomenon by calculating the ratio of following to followers for users in their dataset.
 
 ```{r, include=TRUE}
 edchat_no_followers_n <- edchat_tweeters %>% filter(following_ratio==Inf) %>% nrow()
@@ -347,7 +262,7 @@ edchat_sorted_by_following_ratio <- edchat_tweeters %>%
 View(edchat_sorted_by_following_ratio)
 ```
 
-*4. Level of hyperlinking*: Many spammers share hyperlinks in an attempt to drive traffic to certain websites (e.g., Lin & Huang, 2013) For instance, a tweet might advertise goods for sale and include a hyperlink to the website where the actual purchase would occur. Researchers can therefore analyze the raw number of links, the percentage of tweets that contain a link, or the average number of links per tweet.
+*Metric 4. Level of hyperlinking*: Many spammers share hyperlinks in an attempt to drive traffic to certain websites (e.g., Lin & Huang, 2013) For instance, a tweet might advertise goods for sale and include a hyperlink to the website where the actual purchase would occur. Researchers can therefore analyze the raw number of links, the percentage of tweets that contain a link, or the average number of links per tweet.
 
 ```{r, include=TRUE}
 edchat_sorted_by_hashtags <- edchat_tweeters %>% 

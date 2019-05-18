@@ -1,7 +1,7 @@
 ---
 title: "Spam Project Analysis"
 author: "K. Bret Staudt Willet"
-date: "5/16/2019"
+date: "5/17/2019"
 output: 
     html_document:
         toc: true
@@ -21,9 +21,7 @@ usethis::use_git_ignore(c("*.csv", "*.rds"))
 
 ```{r, include=FALSE}
 library(tidyverse)
-library(rtweet)
 library(lubridate)
-#library(janitor)
 ```
 
 ## Load the data
@@ -46,7 +44,7 @@ n_tweeters_full <- edchat_full %>% pull(from_user_id_str) %>%
 paste("Number of unique tweets:", n_tweets_full); paste("Number of unique tweeters:", n_tweeters_full)
 ```
 
-# De-spam the data
+# Identifying spam in the data
 
 ## Clean with rtweet
 
@@ -70,8 +68,10 @@ paste("Number of unique tweeters after rtweet:", n_tweeters_rtweet)
 ```{r, include=TRUE, echo=FALSE}
 tweet_loss_rtweet <- n_tweets_full - n_tweets_rtweet
 tweeter_loss_rtweet <- n_tweeters_full - n_tweeters_rtweet
-paste("Tweets lost:", tweet_loss_rtweet, "(", round(100 * tweet_loss_rtweet / n_tweets_full, 2), "% )")
-paste("Tweeters lost:", tweeter_loss_rtweet, "(", round(100 * tweeter_loss_rtweet / n_tweeters_full, 2), "% )")
+paste("Tweets lost:", tweet_loss_rtweet, 
+      "(", round(100 * tweet_loss_rtweet / n_tweets_full, 2), "% )")
+paste("Tweeters lost:", tweeter_loss_rtweet, 
+      "(", round(100 * tweeter_loss_rtweet / n_tweeters_full, 2), "% )")
 ```
 
 ```{r, include=TRUE, echo=FALSE}
@@ -90,8 +90,10 @@ paste("Number of public unique tweeters after rtweet:", n_tweeters_rtweet_public
 tweet_loss_rtweet_public <- n_tweets_rtweet - n_tweets_rtweet_public
 tweeter_loss_rtweet_public <- n_tweeters_rtweet - n_tweeters_rtweet_public
 tweet_loss_rtweet_public; tweeter_loss_rtweet_public
-paste("Tweets lost:", tweet_loss_rtweet_public, "(", round(100 * tweet_loss_rtweet_public / n_tweets_rtweet, 2), "% )")
-paste("Tweeters lost:", tweeter_loss_rtweet_public, "(", round(100 * tweeter_loss_rtweet_public / n_tweeters_rtweet, 2), "% )")
+paste("Tweets lost:", tweet_loss_rtweet_public, 
+      "(", round(100 * tweet_loss_rtweet_public / n_tweets_rtweet, 2), "% )")
+paste("Tweeters lost:", tweeter_loss_rtweet_public, 
+      "(", round(100 * tweeter_loss_rtweet_public / n_tweeters_rtweet, 2), "% )")
 ```
 
 ## Rearrange data and calculate needed measures
@@ -123,45 +125,38 @@ freq_tweeters <- rename(freq_tweeters, user_id = .)
 
 
 
-```{r, include=FALSE}
-# Define a function to not include NA values. 
-length_with_na <- function(x) {
-  ifelse(is.na(x), 0, map_int(x, length))
-}
-```
-
-
-
 ```{r, include=FALSE, eval=FALSE}
 freq_replies <- edchat_rtweet_public %>% 
     pull(reply_to_status_id) %>% 
     table() %>% 
     as.data.frame() %>% 
-    arrange(desc(Freq)) %>%
-    rename(reply_count = Freq)
-freq_replies <- rename(freq_replies, status_id = .)
+    arrange(desc(Freq))
+freq_replies <- rename(freq_replies, status_id = ., reply_count = Freq)
 
-edchat_rtweet_public <- edchat_rtweet_public %>% 
+edchat_with_replies <- edchat_rtweet_public %>% 
     full_join(freq_replies, by='status_id') %>% 
-    mutate(reply_count = ifelse(is.na(reply_count), 0, reply_count))
+    mutate(reply_count = ifelse(is.na(reply_count), 0, reply_count)) %>%
+    filter(!is.na(user_id))
 ```
 
-```{r, include=FALSE, eval=FALSE}
-edchat_tweeters <- edchat_rtweet_public %>% 
+```{r eval=FALSE, include=FALSE}
+edchat_tweeters <- edchat_with_replies %>% 
+    rename(profile_description = description) %>% 
     mutate(tweets_made_all = statuses_count %>% as.numeric(),
            tweets_liked_all = favourites_count %>% as.numeric(),
-           profile_description = description,
-           favorite_count = ifelse(is.na(favorite_count), 0, favorite_count) %>% as.numeric(),
-           retweet_count = ifelse(is.na(retweet_count), 0, retweet_count) %>% as.numeric(),
-           hashtag_count = ifelse(is.na(hashtags), 0, strsplit(hashtags, " ") %>% sapply(length)), # length_with_na()
+           favorite_count = favorite_count %>% as.numeric(),
+           retweet_count = ifelse(is_retweet=="FALSE",
+                                  retweet_count %>% as.numeric(),
+                                  NA),
+           hashtag_count = ifelse(is.na(hashtags), 0, strsplit(hashtags, " ") %>% sapply(length)),
            hashtag_inclusion = ifelse(hashtag_count==0, 0, 1) %>% as.numeric(),
-           url_count = ifelse(is.na(urls_url), 0, strsplit(urls_url, " ") %>% sapply(length)), # length_with_na()
-           url_inclusion = ifelse(url_count==0, 0, 1),
+           url_count = ifelse(is.na(urls_url), 0, strsplit(urls_url, " ") %>% sapply(length)),
+           url_inclusion = ifelse(url_count==0, 0, 1) %>% as.numeric(),
            following_ratio = as.numeric(friends_count) / as.numeric(followers_count)
            ) %>%
     group_by(user_id) %>%
     mutate(like_mean = mean(favorite_count),
-           retweet_mean = mean(retweet_count),
+           retweet_mean = retweet_count[!is.na(retweet_count)] %>% mean(),
            reply_mean = mean(reply_count),
            hashtag_total = sum(hashtag_count),
            hashtag_mean = mean(hashtag_count),
@@ -172,7 +167,6 @@ edchat_tweeters <- edchat_rtweet_public %>%
               ) %>%
     slice(1) %>%
     full_join(freq_tweeters, by='user_id') %>%
-    filter(!is.na(user_id)) %>%
     select(user_id, screen_name,
            tweets_made_all, tweets_made_edchat,
            z, edchat_prop,
@@ -197,7 +191,7 @@ edchat_tweeters <- read.csv("edchat_tweeters.csv", header=TRUE, colClasses= c(us
 
 *Metric 1. Volume of tweeting*: One indicator of spam is unusually high-volume tweeting as such tweeting is often-bot generated. Related practical indicators of spam include counts of the raw number of tweets, the percentage of tweets to a hashtag accounted for by a user, or more standardized metrics such as z-scores of tweets per user.
 
-```{r, include=TRUE}
+```{r, include=TRUE, echo=FALSE}
 # Total tweets by tweeter
 #edchat_tweeters %>% arrange(desc(tweets_made_all)) %>% head(100) 
 
@@ -214,65 +208,52 @@ edchat_one_timers_n <- edchat_tweeters %>% filter(tweets_made_edchat==1) %>% nro
 edchat_one_timers_p <- round(100 * edchat_one_timers_n / nrow(edchat_tweeters), 2)
 paste("One-time tweeters:", edchat_one_timers_n, "(", edchat_one_timers_p, "% )")
 
-edchat_sorted_by_z <- edchat_tweeters %>% arrange(desc(z))
-#head(edchat_sorted_by_z, 100)
-#View(edchat_sorted_by_z)
+hist(edchat_tweeters$z, breaks=100, ylim=c(0,50))
 ```
 
 *Metric 2. Level of interaction*: Because spammers tend to broadcast messages, which others frequently ignore (Lin & Huang, 2013), spam accounts can also be identified by the absence of interaction with others. Relatively easy metrics researchers can use to measure interaction is to examine the extent to which a users’ tweets result in likes, retweets, and replies.
 
-```{r, include=TRUE}
-edchat_sorted_by_interaction <- edchat_tweeters %>% 
-    arrange(desc(z), like_mean, retweet_mean, reply_mean) %>%
-    select(user_id, screen_name, z, like_mean, retweet_mean, reply_mean)
-#head(edchat_sorted_by_interaction, 100)
-#View(edchat_sorted_by_interaction)
-
+```{r, include=TRUE, echo=FALSE}
 edchat_sorted_by_likes <- edchat_tweeters %>% 
     arrange(desc(like_mean), retweet_mean, reply_mean, z) %>%
     select(user_id, screen_name, z, like_mean, retweet_mean, reply_mean)
-#head(edchat_sorted_by_likes, 100)
 #View(edchat_sorted_by_likes)
 
 edchat_sorted_by_retweets <- edchat_tweeters %>% 
     arrange(desc(retweet_mean), like_mean, reply_mean, z) %>%
     select(user_id, screen_name, z, like_mean, retweet_mean, reply_mean)
-#head(edchat_sorted_by_retweets, 100)
 #View(edchat_sorted_by_retweets)
 
 edchat_sorted_by_replies <- edchat_tweeters %>% 
     arrange(desc(reply_mean), like_mean, retweet_mean, z) %>%
     select(user_id, screen_name, z, like_mean, retweet_mean, reply_mean)
-#head(edchat_sorted_by_replies, 100)
 #View(edchat_sorted_by_replies)
-
 ```
 
 *Metric 3. Following vs. followers*: Spammers often follow many other users, but themselves have relatively low number of followers. Researchers can quickly measure this phenomenon by calculating the ratio of following to followers for users in their dataset.
 
-```{r, include=TRUE}
+```{r, include=TRUE, echo=FALSE}
 edchat_no_followers_n <- edchat_tweeters %>% filter(following_ratio==Inf) %>% nrow()
 edchat_no_followers_p <- round(100 * edchat_no_followers_n / nrow(edchat_tweeters), 2)
 paste("Tweeters with no followers:", edchat_no_followers_n, "(", edchat_no_followers_p, "% )")
 
 edchat_sorted_by_following_ratio <- edchat_tweeters %>% 
     arrange(desc(following_ratio), desc(z)) %>%
-    select(user_id, screen_name, z, following_ratio, friends_count, followers_count, like_mean, retweet_mean, reply_mean)
-#head(edchat_sorted_by_following_ratio, 100)
-View(edchat_sorted_by_following_ratio)
+    select(user_id, screen_name, z, following_ratio, friends_count, followers_count, 
+           like_mean, retweet_mean, reply_mean)
+#View(edchat_sorted_by_following_ratio)
 ```
 
 *Metric 4. Level of hyperlinking*: Many spammers share hyperlinks in an attempt to drive traffic to certain websites (e.g., Lin & Huang, 2013) For instance, a tweet might advertise goods for sale and include a hyperlink to the website where the actual purchase would occur. Researchers can therefore analyze the raw number of links, the percentage of tweets that contain a link, or the average number of links per tweet.
 
-```{r, include=TRUE}
+```{r, include=TRUE, echo=FALSE}
 edchat_sorted_by_hashtags <- edchat_tweeters %>% 
     arrange(desc(tweets_with_hashtags)) %>%
     select(user_id, screen_name, z, 
            tweets_made_all, tweets_made_edchat,
            hashtag_total, hashtag_mean, tweets_with_hashtags, 
            url_total, url_mean, tweets_with_url)
-#head(edchat_sorted_by_hashtags, 100)
-View(edchat_sorted_by_hashtags)
+#View(edchat_sorted_by_hashtags)
 
 edchat_sorted_by_urls <- edchat_tweeters %>% 
     arrange(desc(url_mean)) %>%
@@ -280,27 +261,116 @@ edchat_sorted_by_urls <- edchat_tweeters %>%
            tweets_made_all, tweets_made_edchat,
            hashtag_total, hashtag_mean, tweets_with_hashtags, 
            url_total, url_mean, tweets_with_url)
-#head(edchat_sorted_by_urls, 100)
-View(edchat_sorted_by_urls)
-
+#View(edchat_sorted_by_urls)
 ```
 
-## Remove the spammers
+# Making decisions about what to do with the spammers
 
-Explain why we chose these particular cutoffs...
+## Case A: Consider top-10 tweeters and decide who to exclude
+
+For comparison between #Edchat and other hashtags, need to remove most prolific, bot-like contributors. We took a holistic approach to applying our practical metrics for spam detection. We first looked at the volume of tweets contributed to #Edchat, then looked at the contributors' profile descriptions. Third, we knew these accounts were active and not suspended because `rtweet` was able to pull their information. Fourth, considering the proportion of #Edchat tweets contributed by the top-10 users was not particularly useful, because the overall volume of #Edchat is so large. Fifth, we looked at interaction measures such as mean retweets, likes, and replies per per tweet. Sixth, we looked at the percentage of tweets  containing hyperlinks. Seventh, we used Kearney's TweetBotOrNot tool (https://mikewk.shinyapps.io/botornot/) to find the "estimated probability of user being an automated account." Eighth, we looked at the content of each user's tweets.
+
+```{r, include=TRUE, echo=FALSE}
+edchat_exclude <- edchat_tweeters %>% 
+    arrange(desc(z)) %>%
+    head(10) %>%
+    select(user_id, screen_name, tweets_made_all, tweets_made_edchat, 
+           z, edchat_prop, 
+           retweet_mean, like_mean, reply_mean,
+           tweets_with_url, url_mean, hashtag_mean,
+           profile_description, profile_url
+           )
+
+edchat_exclude$botornot <- c(.320,
+                             .080,
+                             .406,
+                             .011,
+                             .008,
+                             .285,
+                             .721,
+                             .002,
+                             .057,
+                             .010
+                            )
+
+edchat_exclude$spammer <- c("yes", 
+                            "yes", 
+                            "yes", 
+                            "no", 
+                            "yes (discuss)", 
+                            "no (discuss)", 
+                            "yes", 
+                            "no (discuss)", 
+                            "yes", 
+                            "yes"
+                            )
+
+exclude_filter <- edchat_exclude %>% 
+    filter(grepl("yes*", spammer)) %>%
+    pull(screen_name) %>% 
+    as.character()
+
+edchat_unspammed <- edchat_rtweet_public %>% filter(!(screen_name %in% exclude_filter))
+n_tweets_unspammed<- edchat_unspammed %>% pull(status_id) %>%
+    unique() %>% 
+    length()
+n_tweeters_unspammed <- edchat_unspammed %>% pull(user_id) %>%
+    unique() %>% 
+    length()
+paste("Number of public unique tweets after removing spammers:", n_tweets_unspammed)
+paste("Number of public unique tweeters after removing spammers:", n_tweeters_unspammed)
+```
+
+For comparison to other Twitter education hashtags, look at tweets per month per user.
+
+```{r, include=TRUE, echo=FALSE}
+time_start_rtweet <- edchat_rtweet_public$created_at %>% min() %>% ymd_hms()
+time_end_rtweet <- edchat_rtweet_public$created_at %>% max() %>% ymd_hms()
+n_months_rtweet <- (time_end_rtweet - time_start_rtweet) %>% time_length(unit="months")
+
+time_start_unspammed <- edchat_unspammed$created_at %>% min() %>% ymd_hms()
+time_end_unspammedt <- edchat_unspammed$created_at %>% max() %>% ymd_hms()
+n_months_unspammed <- (time_end_unspammedt - time_start_unspammed) %>% time_length(unit="months")
+
+paste("Tweets per month per user:", 
+      round(n_tweets_rtweet_public / n_months_rtweet / n_tweeters_rtweet_public, 2)
+      )
+
+paste("Tweets per month per user after removing spammers:", 
+      round(n_tweets_unspammed / n_months_unspammed / n_tweeters_unspammed, 2)
+      )
+```
+
+```{r, include=TRUE, echo=FALSE}
+tweeter_loss_unspammed <- n_tweeters_rtweet_public - n_tweeters_unspammed
+tweet_loss_unspammed <- n_tweets_rtweet_public - n_tweets_unspammed
+
+paste("Tweeters lost after removing spammers:", tweeter_loss_unspammed, 
+      "(", round(100 * tweeter_loss_unspammed / n_tweeters_rtweet_public, 2), "% )")
+paste("Tweets lost after removing spammers:", tweet_loss_unspammed, 
+      "(", round(100 * tweet_loss_unspammed / n_tweets_rtweet_public, 2), "% )")
+```
+
+## Case B: Consider low-interaction tweeters and decide who to highlight
+
+To study potential self-promotional behavior within #Edchat, need to identify and focus upon contributors who exhibit certain markers.
 
 ```{r, include=TRUE}
-edchat_closer_look <- edchat_tweeters %>% filter(z > 2, 
+edchat_ focus <- edchat_tweeters %>% filter( 
                                                  like_mean < 1, 
                                                  retweet_mean < 1,
                                                  reply_mean < 1,
                                                  following_ratio > 2
                                                  )
+nrow(edchat_closer_look)
 View(edchat_closer_look)
-```
 
-# Compare the full dataset with the de-spammed dataset
 
-```{r, include=TRUE}
-edchat_tweeters
+edchat_tweeters %>% filter(url_mean > 1.5) %>% nrow()
+
+edchat_tweeters %>% filter(hashtag_mean > 4,
+                           like_mean < 1,
+                           reply_mean < 1
+                           ) %>% nrow()
+
 ```

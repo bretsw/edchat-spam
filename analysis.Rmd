@@ -1,7 +1,7 @@
 ---
 title: "Spam Project Analysis"
 author: "K. Bret Staudt Willet"
-date: "5/17/2019"
+date: "5/20/2019"
 output: 
     html_document:
         toc: true
@@ -140,6 +140,9 @@ edchat_with_replies <- edchat_rtweet_public %>%
 ```
 
 ```{r eval=FALSE, include=FALSE}
+hashtag_regex <- "#([0-9]|[a-zA-Z])+"
+url_regex <- "http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+"
+
 edchat_tweeters <- edchat_with_replies %>% 
     rename(profile_description = description) %>% 
     mutate(tweets_made_all = statuses_count %>% as.numeric(),
@@ -148,9 +151,11 @@ edchat_tweeters <- edchat_with_replies %>%
            retweet_count = ifelse(is_retweet=="FALSE",
                                   retweet_count %>% as.numeric(),
                                   NA),
-           hashtag_count = ifelse(is.na(hashtags), 0, strsplit(hashtags, " ") %>% sapply(length)),
+           hashtag_count = str_count(text, hashtag_regex),
+               # ifelse(is.na(hashtags), 0, strsplit(hashtags, " ") %>% sapply(length)),
            hashtag_inclusion = ifelse(hashtag_count==0, 0, 1) %>% as.numeric(),
-           url_count = ifelse(is.na(urls_url), 0, strsplit(urls_url, " ") %>% sapply(length)),
+           url_count = str_count(text, url_regex),
+               # ifelse(is.na(urls_url), 0, strsplit(urls_url, " ") %>% sapply(length)),
            url_inclusion = ifelse(url_count==0, 0, 1) %>% as.numeric(),
            following_ratio = as.numeric(friends_count) / as.numeric(followers_count)
            ) %>%
@@ -208,7 +213,7 @@ edchat_one_timers_n <- edchat_tweeters %>% filter(tweets_made_edchat==1) %>% nro
 edchat_one_timers_p <- round(100 * edchat_one_timers_n / nrow(edchat_tweeters), 2)
 paste("One-time tweeters:", edchat_one_timers_n, "(", edchat_one_timers_p, "% )")
 
-hist(edchat_tweeters$z, breaks=100, ylim=c(0,50))
+#hist(edchat_tweeters$z, breaks=100, ylim=c(0,50))
 ```
 
 *Metric 2. Level of interaction*: Because spammers tend to broadcast messages, which others frequently ignore (Lin & Huang, 2013), spam accounts can also be identified by the absence of interaction with others. Relatively easy metrics researchers can use to measure interaction is to examine the extent to which a users’ tweets result in likes, retweets, and replies.
@@ -280,7 +285,6 @@ edchat_exclude <- edchat_tweeters %>%
            tweets_with_url, url_mean, hashtag_mean,
            profile_description, profile_url
            )
-
 edchat_exclude$botornot <- c(.320,
                              .080,
                              .406,
@@ -292,7 +296,6 @@ edchat_exclude$botornot <- c(.320,
                              .057,
                              .010
                             )
-
 edchat_exclude$spammer <- c("yes", 
                             "yes", 
                             "yes", 
@@ -304,17 +307,20 @@ edchat_exclude$spammer <- c("yes",
                             "yes", 
                             "yes"
                             )
+#View(edchat_exclude)
 
 exclude_filter <- edchat_exclude %>% 
-    filter(grepl("yes*", spammer)) %>%
+    #filter(grepl("yes*", spammer)) %>%
     pull(screen_name) %>% 
     as.character()
 
 edchat_unspammed <- edchat_rtweet_public %>% filter(!(screen_name %in% exclude_filter))
-n_tweets_unspammed<- edchat_unspammed %>% pull(status_id) %>%
+n_tweets_unspammed <- edchat_unspammed %>% 
+    pull(status_id) %>%
     unique() %>% 
     length()
-n_tweeters_unspammed <- edchat_unspammed %>% pull(user_id) %>%
+n_tweeters_unspammed <- edchat_unspammed %>% 
+    pull(user_id) %>%
     unique() %>% 
     length()
 paste("Number of public unique tweets after removing spammers:", n_tweets_unspammed)
@@ -355,22 +361,31 @@ paste("Tweets lost after removing spammers:", tweet_loss_unspammed,
 
 To study potential self-promotional behavior within #Edchat, need to identify and focus upon contributors who exhibit certain markers.
 
+Archetype of self-promotional behaviors... Combo of markers
+Inclusion of many hashtags (how many including if hoping to engage in dialogue? 2 or 3?) 4, 7, 10... 
+
+Started by talking about different types of spammers, are realizing that we can identify different types of user archetypes, not just the type of users we want to remove from the dataset. See Prestridge (2019) in *Computers & Education* that offers suggestions for types of users.
+
 ```{r, include=TRUE}
-edchat_ focus <- edchat_tweeters %>% filter( 
-                                                 like_mean < 1, 
-                                                 retweet_mean < 1,
-                                                 reply_mean < 1,
-                                                 following_ratio > 2
-                                                 )
-nrow(edchat_closer_look)
-View(edchat_closer_look)
+edchat_focus <- edchat_tweeters %>% 
+    filter(!is.nan(retweet_mean),
+           z > 2,
+           following_ratio > 2, 
+           like_mean < 1,
+           retweet_mean < 1,
+           reply_mean < 1
+           )
+nrow(edchat_focus) # 29
+#View(edchat_focus)
 
+edchat_tweeters %>% filter(following_ratio > 10) %>% nrow()  #2588
+edchat_tweeters %>% filter(url_mean > 2) %>% nrow()  # 610
 
-edchat_tweeters %>% filter(url_mean > 1.5) %>% nrow()
-
-edchat_tweeters %>% filter(hashtag_mean > 4,
-                           like_mean < 1,
-                           reply_mean < 1
-                           ) %>% nrow()
-
+edchat_tweeters %>% filter(!is.nan(retweet_mean), hashtag_mean > 4) %>% nrow()  # 7,897
+edchat_tweeters %>% filter(!is.nan(retweet_mean), hashtag_mean > 5) %>% nrow()  # 4,454
+edchat_tweeters %>% filter(!is.nan(retweet_mean), hashtag_mean > 6) %>% nrow()  # 2,581
+edchat_tweeters %>% filter(!is.nan(retweet_mean), hashtag_mean > 7) %>% nrow()  # 1,675
+edchat_tweeters %>% filter(!is.nan(retweet_mean), hashtag_mean > 8) %>% nrow()  # 1,126
+edchat_tweeters %>% filter(!is.nan(retweet_mean), hashtag_mean > 9) %>% nrow()  # 770
+edchat_tweeters %>% filter(!is.nan(retweet_mean), hashtag_mean > 10) %>% nrow()  # 568
 ```

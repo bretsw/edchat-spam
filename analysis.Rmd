@@ -1,7 +1,7 @@
 ---
 title: "Spam Project Analysis"
 author: "K. Bret Staudt Willet"
-date: "5/20/2019"
+date: "6/3/2019"
 output: 
     html_document:
         toc: true
@@ -29,7 +29,11 @@ library(lubridate)
 Having completed the steps in the setup.Rmd file, you now have the dataset stored in your local repository and can load it as usual. 
 
 ```{r, include=FALSE}
-edchat_full <- read.csv("edchat_full_df.csv", header=TRUE, colClasses='character')
+edchat_full <- read.csv("edchat_full_df.csv", 
+                        header=TRUE, 
+                        colClasses= c(status_id='character',
+                                      user_id='character')
+                        )
 ```
 
 # Review the full dataset
@@ -51,7 +55,11 @@ paste("Number of unique tweets:", n_tweets_full); paste("Number of unique tweete
 Our first step of de-spamming our dataset is to run the data through the `rtweet` R package, which queries the Twitter API to return the most complete set of tweet metadata available. See https://rtweet.info/ for details on `rtweet`.
 
 ```{r, include=FALSE}
-edchat_rtweet <- read.csv("edchat_rtweet_df.csv", header=TRUE, colClasses='character')
+edchat_rtweet <- read.csv("edchat_rtweet_df.csv", 
+                          header=TRUE, 
+                          colClasses= c(status_id='character',
+                                        user_id='character')
+                          )
 ```
 
 ```{r, include=TRUE, echo=FALSE}
@@ -189,7 +197,11 @@ write.csv(edchat_tweeters, "edchat_tweeters.csv", row.names=FALSE)
 ```
 
 ```{r, include=FALSE}
-edchat_tweeters <- read.csv("edchat_tweeters.csv", header=TRUE, colClasses= c(user_id='character'))
+edchat_tweeters <- read.csv("edchat_tweeters.csv", 
+                            header=TRUE, 
+                            colClasses= c(status_id='character',
+                                          user_id='character')
+                            )
 ```
 
 ## Apply practical metrics for educational research
@@ -327,23 +339,50 @@ paste("Number of public unique tweets after removing spammers:", n_tweets_unspam
 paste("Number of public unique tweeters after removing spammers:", n_tweeters_unspammed)
 ```
 
-For comparison to other Twitter education hashtags, look at tweets per month per user.
+For comparison to other Twitter education hashtags, look at tweets (original tweets only, not retweets) per month per user.
 
 ```{r, include=TRUE, echo=FALSE}
-time_start_rtweet <- edchat_rtweet_public$created_at %>% min() %>% ymd_hms()
-time_end_rtweet <- edchat_rtweet_public$created_at %>% max() %>% ymd_hms()
+time_start_rtweet <- edchat_rtweet_public$created_at %>% as.character() %>% min() %>% ymd_hms()
+time_end_rtweet <- edchat_rtweet_public$created_at %>% as.character() %>% max() %>% ymd_hms()
 n_months_rtweet <- (time_end_rtweet - time_start_rtweet) %>% time_length(unit="months")
 
-time_start_unspammed <- edchat_unspammed$created_at %>% min() %>% ymd_hms()
-time_end_unspammedt <- edchat_unspammed$created_at %>% max() %>% ymd_hms()
-n_months_unspammed <- (time_end_unspammedt - time_start_unspammed) %>% time_length(unit="months")
+time_start_unspammed <- edchat_unspammed$created_at %>% as.character() %>% min() %>% ymd_hms()
+time_end_unspammed <- edchat_unspammed$created_at %>% as.character() %>% max() %>% ymd_hms()
+n_months_unspammed <- (time_end_unspammed - time_start_unspammed) %>% time_length(unit="months")
+
+n_orig_tweets <- edchat_rtweet_public %>% 
+    filter(is_retweet == FALSE) %>% 
+    pull(status_id) %>%
+    unique() %>% 
+    length()
+    
+n_orig_tweeters <- edchat_rtweet_public %>% 
+    filter(is_retweet == FALSE) %>% 
+    pull(user_id) %>%
+    unique() %>% 
+    length()
+paste("Number of original tweets:", n_orig_tweets); paste("Number of orginal tweeters:", n_orig_tweeters)
+
+n_orig_tweets_unspammed <- edchat_unspammed %>% 
+    filter(is_retweet == FALSE) %>% 
+    pull(status_id) %>%
+    unique() %>% 
+    length()
+    
+n_orig_tweeters_unspammed <- edchat_unspammed %>% 
+    filter(is_retweet == FALSE) %>% 
+    pull(user_id) %>%
+    unique() %>% 
+    length()
+paste("Number of original tweets minus spam:", 
+      n_orig_tweets_unspammed); paste("Number of original tweeters minus spam:", 
+                            n_orig_tweeters_unspammed)
 
 paste("Tweets per month per user:", 
-      round(n_tweets_rtweet_public / n_months_rtweet / n_tweeters_rtweet_public, 2)
+      round(n_orig_tweets / n_months_rtweet / n_orig_tweeters, 2)
       )
-
 paste("Tweets per month per user after removing spammers:", 
-      round(n_tweets_unspammed / n_months_unspammed / n_tweeters_unspammed, 2)
+      round(n_orig_tweets_unspammed / n_months_unspammed / n_orig_tweeters_unspammed, 2)
       )
 ```
 
@@ -375,7 +414,7 @@ edchat_focus <- edchat_tweeters %>%
            retweet_mean < 1,
            reply_mean < 1
            )
-nrow(edchat_focus) # 29
+nrow(edchat_focus) # 29 (this increases to 103 tweeters if looking at following_ratio > 1)
 #View(edchat_focus)
 
 edchat_tweeters %>% filter(following_ratio > 10) %>% nrow()  #2588

@@ -1,7 +1,7 @@
 ---
 title: "Spam Project Analysis"
 author: "K. Bret Staudt Willet"
-date: "6/3/2019"
+date: "6/12/2019"
 output: 
     html_document:
         toc: true
@@ -30,9 +30,9 @@ Having completed the steps in the setup.Rmd file, you now have the dataset store
 
 ```{r, include=FALSE}
 edchat_full <- read.csv("edchat_full_df.csv", 
-                        header=TRUE, 
-                        colClasses= c(status_id='character',
-                                      user_id='character')
+                        header=TRUE#, 
+                        #colClasses= c(status_id='character',
+                        #              user_id='character')
                         )
 ```
 
@@ -128,7 +128,7 @@ freq_tweeters <- freq_tweeters %>%
     select(-sq_mean_diff)
 freq_tweeters <- rename(freq_tweeters, user_id = .)
 #hist(freq_tweeters$z)
-#freq_tweeters %>% head(n=100)
+#freq_tweeters %>% head(n=10)
 ```
 
 
@@ -156,7 +156,8 @@ edchat_tweeters <- edchat_with_replies %>%
     mutate(tweets_made_all = statuses_count %>% as.numeric(),
            tweets_liked_all = favourites_count %>% as.numeric(),
            favorite_count = favorite_count %>% as.numeric(),
-           retweet_count = ifelse(is_retweet=="FALSE",
+           is_retweet = ifelse(is_retweet, 1, 0),
+           retweet_count = ifelse(is_retweet==0,
                                   retweet_count %>% as.numeric(),
                                   NA),
            hashtag_count = str_count(text, hashtag_regex),
@@ -168,7 +169,8 @@ edchat_tweeters <- edchat_with_replies %>%
            following_ratio = as.numeric(friends_count) / as.numeric(followers_count)
            ) %>%
     group_by(user_id) %>%
-    mutate(like_mean = mean(favorite_count),
+    mutate(retweets_made_edchat = sum(is_retweet),
+           like_mean = mean(favorite_count),
            retweet_mean = retweet_count[!is.na(retweet_count)] %>% mean(),
            reply_mean = mean(reply_count),
            hashtag_total = sum(hashtag_count),
@@ -180,8 +182,9 @@ edchat_tweeters <- edchat_with_replies %>%
               ) %>%
     slice(1) %>%
     full_join(freq_tweeters, by='user_id') %>%
+    mutate(orig_tweets_made_edchat = tweets_made_edchat - retweets_made_edchat) %>% 
     select(user_id, screen_name,
-           tweets_made_all, tweets_made_edchat,
+           tweets_made_all, tweets_made_edchat, orig_tweets_made_edchat, retweets_made_edchat,
            z, edchat_prop,
            like_mean, retweet_mean, reply_mean,
            following_ratio, friends_count, followers_count,
@@ -199,8 +202,7 @@ write.csv(edchat_tweeters, "edchat_tweeters.csv", row.names=FALSE)
 ```{r, include=FALSE}
 edchat_tweeters <- read.csv("edchat_tweeters.csv", 
                             header=TRUE, 
-                            colClasses= c(status_id='character',
-                                          user_id='character')
+                            colClasses= c(user_id='character')
                             )
 ```
 
@@ -355,7 +357,6 @@ n_orig_tweets <- edchat_rtweet_public %>%
     pull(status_id) %>%
     unique() %>% 
     length()
-    
 n_orig_tweeters <- edchat_rtweet_public %>% 
     filter(is_retweet == FALSE) %>% 
     pull(user_id) %>%
@@ -368,7 +369,6 @@ n_orig_tweets_unspammed <- edchat_unspammed %>%
     pull(status_id) %>%
     unique() %>% 
     length()
-    
 n_orig_tweeters_unspammed <- edchat_unspammed %>% 
     filter(is_retweet == FALSE) %>% 
     pull(user_id) %>%
@@ -377,14 +377,235 @@ n_orig_tweeters_unspammed <- edchat_unspammed %>%
 paste("Number of original tweets minus spam:", 
       n_orig_tweets_unspammed); paste("Number of original tweeters minus spam:", 
                             n_orig_tweeters_unspammed)
-
 paste("Tweets per month per user:", 
       round(n_orig_tweets / n_months_rtweet / n_orig_tweeters, 2)
+      )
+paste("Tweets per month per user:", 
+      round(n_orig_tweets / n_months_rtweet / n_tweeters_rtweet_public, 2)
       )
 paste("Tweets per month per user after removing spammers:", 
       round(n_orig_tweets_unspammed / n_months_unspammed / n_orig_tweeters_unspammed, 2)
       )
 ```
+
+We first tried statistical comparison using McNemar's Chi-squared Test for Count Data (test on paired proportions). See https://www.medcalc.org/manual/mcnemartest2.php for background on McNemar's Test and https://www.rdocumentation.org/packages/stats/versions/3.6.0/topics/mcnemar.test for R documentation. We have included the code below, but we are not evaluating this because it does not measure quite what we are looking for. Read on!
+
+```{r, include=FALSE, evaluate=FALSE}
+n_retweets <- edchat_rtweet_public %>% 
+    filter(is_retweet == TRUE) %>% 
+    pull(status_id) %>%
+    unique() %>% 
+    length()
+n_retweeters <- edchat_rtweet_public %>% 
+    filter(is_retweet == TRUE) %>% 
+    pull(user_id) %>%
+    unique() %>% 
+    length()
+n_retweets_unspammed <- edchat_unspammed %>% 
+    filter(is_retweet == TRUE) %>% 
+    pull(status_id) %>%
+    unique() %>% 
+    length()
+n_retweeters_unspammed <- edchat_unspammed %>% 
+    filter(is_retweet == TRUE) %>% 
+    pull(user_id) %>%
+    unique() %>% 
+    length()
+
+
+relevant_pre_all <- edchat_rtweet_public %>% pull(status_id) %>% unique() %>% length() # same as n_tweets_rtweet_public
+spam_post_all <- edchat_rtweet_public %>% filter(screen_name %in% exclude_filter) %>%
+    pull(status_id) %>% unique() %>% length()
+relevant_post_all <- edchat_unspammed %>% pull(status_id) %>% unique() %>% length() # same as n_tweets_unspammed
+
+spam_test <- matrix(c(relevant_post_all, 0, spam_post_all, 0),
+                    nrow = 2,
+                    dimnames = list("Pre" = c("Relevant", "Spam"),
+                                    "Post" = c("Relevant", "Spam")
+                                    )
+                    )
+spam_test
+mcnemar_result <- mcnemar.test(spam_test, correct = TRUE)
+mcnemar_result
+exact2x2::mcnemar.exact(spam_test, conf.level=.95)
+mcnemar_effect_size <- compute.es::chies(chi.sq = mcnemar_result$statistic, n = n_tweets_rtweet_public)
+paste("McNemar test: p =", round(mcnemar_result$p.value, 4)); paste("d =", round(mcnemar_effect_size$d, 2))
+
+
+
+relevant_pre_arig <- edchat_rtweet_public %>% filter(!is_retweet) %>% 
+    pull(status_id) %>% unique() %>% length()
+spam_post_orig <- edchat_rtweet_public %>% filter(!is_retweet, screen_name %in% exclude_filter) %>%
+    pull(status_id) %>% unique() %>% length()
+relevant_post_orig <- edchat_unspammed %>% filter(!is_retweet) %>% 
+    pull(status_id) %>% unique() %>% length()
+
+spam_test2 <- matrix(c(relevant_post_orig, 0, spam_post_orig, 0),
+                    nrow = 2,
+                    dimnames = list("Pre Orig" = c("Relevant", "Spam"),
+                                    "Post Orig" = c("Relevant", "Spam")
+                                    )
+                    )
+spam_test2
+mcnemar_result2 <- mcnemar.test(spam_test2, correct = TRUE)
+mcnemar_result2
+mcnemar_effect_size2 <- compute.es::chies(chi.sq = mcnemar_result2$statistic, n = n_orig_tweets)
+paste("McNemar test: p =", round(mcnemar_result2$p.value, 4)); paste("d =", round(mcnemar_effect_size2$d, 2))
+
+
+
+edchat_tweeters_unspammed <- edchat_tweeters %>% 
+    mutate(is_spam = ifelse(screen_name %in% exclude_filter, TRUE, FALSE),
+           monthly_activity = tweets_made_edchat / n_months_rtweet,
+           monthly_orig_tweets = orig_tweets_made_edchat / n_months_rtweet,
+           monthly_retweets = retweets_made_edchat / n_months_rtweet
+           )
+
+relevant_pre_mean_monthly_orig_tweets <- 
+    edchat_tweeters_unspammed %>%
+    filter(orig_tweets_made_edchat > 0) %>%
+    pull(monthly_orig_tweets) %>%
+    mean() %>% round(2)
+relevant_post_mean_monthly_orig_tweets <- 
+    edchat_tweeters_unspammed %>%
+    filter(!is_spam, orig_tweets_made_edchat > 0) %>%
+    pull(monthly_orig_tweets) %>%
+    mean() %>% round(2)
+spam_post_mean_monthly_orig_tweets <- 
+    edchat_tweeters_unspammed %>%
+    filter(is_spam, orig_tweets_made_edchat > 0) %>%
+    pull(monthly_orig_tweets) %>%
+    mean() %>% round(2)
+
+spam_test3 <- matrix(c(relevant_post_mean_monthly_orig_tweets, 0, spam_post_mean_monthly_orig_tweets, 0),
+                    nrow = 2,
+                    dimnames = list("Pre Monthly Orig" = c("Relevant", "Spam"),
+                                    "Post Monthly Orig" = c("Relevant", "Spam")
+                                    )
+                    )
+spam_test3
+mcnemar_result3 <- mcnemar.test(spam_test3, correct = TRUE)
+mcnemar_result3
+mcnemar_effect_size3 <- compute.es::chies(chi.sq = mcnemar_result3$statistic, n = n_orig_tweets)
+paste("McNemar test: p =", round(mcnemar_result3$p.value, 4)); paste("d =", round(mcnemar_effect_size3$d, 2))
+
+
+
+
+edchat_monthly_volume <- matrix(c(n_orig_tweets, n_retweets,
+                                    n_orig_tweets_unspammed, n_retweets_unspammed),
+                                  nrow = 2,
+                                  dimnames = list("Tweet Type" = c("Original", "Retweet"),
+                                                  "Spam Removal" = c("Before", "After")
+                                                  )
+                                  )
+edchat_monthly_volume
+exact2x2::mcnemar.exact(edchat_monthly_volume, conf.level=.95)
+mcnemar.test(edchat_monthly_volume, correct = TRUE)
+
+activity_orig_before <- n_orig_tweets / n_months_rtweet / n_orig_tweeters
+activity_orig_after <- n_orig_tweets_unspammed / n_months_unspammed / n_orig_tweeters_unspammed
+activity_rt_before <- n_retweets / n_months_rtweet / n_retweeters
+activity_rt_after <- n_retweets_unspammed / n_months_unspammed / n_retweeters_unspammed
+
+edchat_monthly_activity <- matrix(c(activity_orig_before, activity_rt_before,
+                                    activity_orig_after, activity_rt_after),
+                                  nrow = 2,
+                                  dimnames = list("Tweet Type" = c("Original", "Retweet"),
+                                                  "Spam Removal" = c("Before", "After")
+                                                  )
+                                  )
+edchat_monthly_activity
+exact2x2::mcnemar.exact(edchat_monthly_activity, conf.level=.95)
+exact2x2(edchat_monthly_activity, conf.level=.95)
+mcnemar.test(edchat_monthly_activity, correct = FALSE)
+```
+
+So, McNemara's test was not the correct approach because we are not interested in this comparison exactly.
+
+Instead, we wanted to know whether the activity measure (i.e., original-tweets-per-month-per-user) was statistically significantly different after we removed spam from our dataset.
+
+For this comparison, we used the paired samples Wilcoxon test (also known as Wilcoxon signed-rank test), a *non-parametric* alternative to the paired t-test, used to compare *paired* data when the data are not normally distributed. (See http://www.sthda.com/english/wiki/paired-samples-wilcoxon-test-in-r for a very basic tutorial on the Wilcoxon test in R.)
+
+```{r, include=TRUE, echo=FALSE}
+edchat_tweeters <- read.csv("edchat_tweeters.csv", header=TRUE, colClasses= c(user_id='character'))
+
+edchat_tweeters_unspammed <- edchat_tweeters %>% 
+    mutate(is_spam = ifelse(screen_name %in% exclude_filter, TRUE, FALSE),
+           monthly_activity = tweets_made_edchat / n_months_rtweet,
+           monthly_orig_tweets = orig_tweets_made_edchat / n_months_rtweet,
+           monthly_retweets = retweets_made_edchat / n_months_rtweet
+           )
+paste("All #Edchat tweets"); paste("Mean:", edchat_mean_tweets); paste("SD:", edchat_sd_tweets); paste("Median:", edchat_median_tweets)
+
+edchat_mean_monthly_orig_tweets <- 
+    edchat_tweeters_unspammed %>%
+    filter(orig_tweets_made_edchat > 0) %>%
+    pull(monthly_orig_tweets) %>%
+    mean() %>% round(2)
+edchat_sd_monthly_orig_tweets <- 
+    edchat_tweeters_unspammed %>%
+    filter(orig_tweets_made_edchat > 0) %>%
+    pull(monthly_orig_tweets) %>%
+    sd() %>% round(2)
+edchat_median_monthly_orig_tweets <- 
+    edchat_tweeters_unspammed %>%
+    filter(orig_tweets_made_edchat > 0) %>%
+    pull(monthly_orig_tweets) %>%
+    median() %>% round(2)
+
+paste("Monthly #Edchat original tweets"); paste("Mean:", edchat_mean_monthly_orig_tweets); paste("SD:", edchat_sd_monthly_orig_tweets); paste("Median:", edchat_median_monthly_orig_tweets)
+
+edchat_mean_monthly_orig_tweets_unspammed <- 
+    edchat_tweeters_unspammed %>%
+    filter(!is_spam, orig_tweets_made_edchat > 0) %>%
+    pull(monthly_orig_tweets) %>%
+    mean() %>% round(2)
+edchat_mean_monthly_orig_tweets; edchat_mean_monthly_orig_tweets_unspammed
+
+edchat_mean_monthly_retweets <- edchat_tweeters_unspammed$monthly_retweets %>% mean() %>% round(2)
+edchat_sd_monthly_retweets <- edchat_tweeters_unspammed$monthly_retweets %>% sd() %>% round(2)
+edchat_median_monthly_retweets <- edchat_tweeters_unspammed$monthly_retweets %>% median()
+
+paste("Monthly #Edchat retweets"); paste("Mean:", edchat_mean_monthly_retweets); paste("SD:", edchat_sd_monthly_retweets); paste("Median:", edchat_median_monthly_retweets)
+
+my_data <- data.frame( 
+                group = rep(c("before", "after"), each = 10),
+                weight = c(before,  after)
+                )
+
+wilcoxon_result <- wilcox.test(monthly_orig_tweets ~ is_spam,
+                   data = edchat_tweeters_unspammed, 
+                   alternative = 'two.sided',
+                   paired = TRUE)
+wilcoxon_result
+wilcoxon_result$p.value
+
+library("ggpubr")
+ggboxplot(edchat_tweeters_unspammed, x = "is_spam", y = "monthly_orig_tweets", 
+          color = "group", palette = c("#00AFBB", "#E7B800"),
+          order = c("before", "after"),
+          ylab = "Weight", xlab = "Groups")
+```
+
+However, Wilcoxon turns out to not be appropriate because our data are not actually paired; i.e., there are a different number of observations in the 'relevant' and 'spam' goups. This means that what we are actually looking for is how group membership (i.e., relevant tweets vs. spam) predicts the monthly activity score, original-tweets-per-month-per-user.
+
+Look for covariance???
+
+```{r, include=TRUE, echo=FALSE}
+model <- glm(monthly_orig_tweets ~ .,
+             family = binomial(link='logit'),
+             data = edchat_tweeters_unspammed)
+```
+
+
+
+
+
+
+
+
+
 
 ```{r, include=TRUE, echo=FALSE}
 tweeter_loss_unspammed <- n_tweeters_rtweet_public - n_tweeters_unspammed
